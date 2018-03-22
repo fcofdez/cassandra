@@ -955,4 +955,24 @@ public class JsonTest extends CQLTester
         execute("INSERT INTO %s JSON ?", "{\"k\": 0, \"a\": {\"a\": 0, \"b\": [1, 2, 3], \"c\": null}, \"b\": null}");
         assertRows(execute("SELECT k, a.a, a.b, a.c, b FROM %s"), row(0, 0, set(1, 2, 3), null, null));
     }
+
+    @Test
+    public void testJsonOrdering() throws Throwable
+    {
+        createTable("CREATE TABLE %s( PRIMARY KEY (a, b), a INT, b INT);");
+        execute("INSERT INTO %s(a, b) VALUES (20, 30);");
+        execute("INSERT INTO %s(a, b) VALUES (100, 200);");
+
+        assertRows(execute("SELECT JSON a, b FROM %s WHERE a IN (20, 100) ORDER BY b"),
+                   row("{\"a\": 20, \"b\": 30}"),
+                   row("{\"a\": 100, \"b\": 200}"));
+
+        assertRows(execute("SELECT JSON a, b FROM %s WHERE a IN (20, 100) ORDER BY b DESC"),
+                   row("{\"a\": 100, \"b\": 200}"),
+                   row("{\"a\": 20, \"b\": 30}"));
+
+        assertRows(execute("SELECT JSON a FROM %s WHERE a IN (20, 100) ORDER BY b DESC"),
+                   row("{\"a\": 100}"),
+                   row("{\"a\": 20}"));
+    }
 }

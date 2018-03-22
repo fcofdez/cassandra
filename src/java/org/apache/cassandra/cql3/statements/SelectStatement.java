@@ -792,7 +792,7 @@ public class SelectStatement implements CQLStatement
             if (!parameters.orderings.isEmpty())
             {
                 verifyOrderingIsAllowed(restrictions);
-                orderingComparator = getOrderingComparator(cfm, selection, restrictions);
+                orderingComparator = getOrderingComparator(cfm, selection, restrictions, parameters.isJson);
                 isReversed = isReversed(cfm);
             }
 
@@ -888,13 +888,14 @@ public class SelectStatement implements CQLStatement
 
         private Comparator<List<ByteBuffer>> getOrderingComparator(CFMetaData cfm,
                                                                    Selection selection,
-                                                                   StatementRestrictions restrictions)
+                                                                   StatementRestrictions restrictions,
+                                                                   boolean isJson)
                                                                    throws InvalidRequestException
         {
             if (!restrictions.keyIsInRelation())
                 return null;
 
-            Map<ColumnIdentifier, Integer> orderingIndexes = getOrderingIndex(cfm, selection);
+            Map<ColumnIdentifier, Integer> orderingIndexes = getOrderingIndex(cfm, selection, isJson);
 
             List<Integer> idToSort = new ArrayList<Integer>();
             List<Comparator<ByteBuffer>> sorters = new ArrayList<Comparator<ByteBuffer>>();
@@ -910,7 +911,7 @@ public class SelectStatement implements CQLStatement
                     : new CompositeComparator(sorters, idToSort);
         }
 
-        private Map<ColumnIdentifier, Integer> getOrderingIndex(CFMetaData cfm, Selection selection)
+        private Map<ColumnIdentifier, Integer> getOrderingIndex(CFMetaData cfm, Selection selection, boolean isJson)
                 throws InvalidRequestException
         {
             // If we order post-query (see orderResults), the sorted column needs to be in the ResultSet for sorting,
@@ -924,6 +925,12 @@ public class SelectStatement implements CQLStatement
                 if (def == null)
                     handleUnrecognizedOrderingColumn(column);
                 int index = selection.indexOf(def);
+                // If we order post-query in json, the first column is the json column
+                // that we ship to the client. The ordering columns will be after the json column,
+                // so we should shift the ordering column index by 1 position because selection at
+                // this point doesn't know about the json column. (CASSANDRA-14286)
+                if (isJson && index >= 0)
+                    index += 1;
                 if (index < 0)
                     index = selection.addColumnForOrdering(def);
                 orderingIndexes.put(def.name, index);

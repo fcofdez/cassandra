@@ -24,6 +24,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Lists;
 
 import org.apache.cassandra.config.CFMetaData;
 import org.apache.cassandra.config.ColumnDefinition;
@@ -154,7 +155,10 @@ public abstract class Selection
 
         ColumnSpecification firstColumn = metadata.names.get(0);
         ColumnSpecification jsonSpec = new ColumnSpecification(firstColumn.ksName, firstColumn.cfName, Json.JSON_COLUMN_ID, UTF8Type.instance);
-        return new ResultSet.ResultMetadata(Arrays.asList(jsonSpec));
+        ResultSet.ResultMetadata resultMetadata = new ResultSet.ResultMetadata(Lists.newArrayList(jsonSpec));
+        for (ColumnSpecification c: metadata.names)
+            resultMetadata.addNonSerializedColumn(c);
+        return resultMetadata;
     }
 
     public static Selection wildcard(CFMetaData cfm)
@@ -350,14 +354,20 @@ public abstract class Selection
         private List<ByteBuffer> getOutputRow(int protocolVersion)
         {
             List<ByteBuffer> outputRow = selectors.getOutputRow(protocolVersion);
-            return isJson ? rowToJson(outputRow, protocolVersion)
-                          : outputRow;
+            if (isJson)
+            {
+                // Keep all columns around for possible post-query ordering. (CASSANDRA-14286)
+                List<ByteBuffer> jsonRow = rowToJson(outputRow, protocolVersion);
+                jsonRow.addAll(outputRow);
+                outputRow = jsonRow;
+            }
+            return outputRow;
         }
 
         private List<ByteBuffer> rowToJson(List<ByteBuffer> row, int protocolVersion)
         {
             StringBuilder sb = new StringBuilder("{");
-            for (int i = 0; i < metadata.names.size(); i++)
+            for (int i = 0; i < metadata.getColumnCount(); i++)
             {
                 if (i > 0)
                     sb.append(", ");
@@ -377,7 +387,9 @@ public abstract class Selection
                     sb.append(spec.type.toJSONString(buffer, protocolVersion));
             }
             sb.append("}");
-            return Collections.singletonList(UTF8Type.instance.getSerializer().serialize(sb.toString()));
+            List<ByteBuffer> jsonRow = new ArrayList<>();
+            jsonRow.add(UTF8Type.instance.getSerializer().serialize(sb.toString()));
+            return jsonRow;
         }
 
         private ByteBuffer value(Cell c)
