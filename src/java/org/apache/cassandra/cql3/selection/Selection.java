@@ -57,7 +57,7 @@ public abstract class Selection
     private final ResultSet.ResultMetadata metadata;
     private final boolean collectTimestamps;
     private final boolean collectTTLs;
-    // Index of ordering columns within the row used to get only these for post-query json ordering (CASSANDRA-14286)
+    // Ordering columns index within the row used to get only these for post-query json ordering (CASSANDRA-14286)
     private List<Integer> orderingColumnsIndex;
 
     protected Selection(CFMetaData cfm,
