@@ -189,7 +189,7 @@ public abstract class Selection
         if (index < 0)
             index = addOrderingColumn(c);
 
-        orderingIndex.put(c, addOrderingColumn(c));
+        orderingIndex.put(c, index);
     }
 
     protected int addOrderingColumn(ColumnDefinition c)
