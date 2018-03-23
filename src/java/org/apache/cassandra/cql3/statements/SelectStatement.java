@@ -844,7 +844,7 @@ public class SelectStatement implements CQLStatement
                 verifyOrderingIsAllowed(restrictions);
                 orderingComparator = getOrderingComparator(cfm, selection, restrictions, parameters.isJson);
                 isReversed = isReversed(cfm);
-                selection.setOrderingIndex(getOrderingIndex(cfm, selection, false).values());
+                selection.setOrderingColumnsIndex(getOrderingIndex(cfm, selection, false).values());
             }
 
             if (isReversed)
@@ -981,12 +981,13 @@ public class SelectStatement implements CQLStatement
                 if (def == null)
                     handleUnrecognizedOrderingColumn(column);
                 int index = selection.getResultSetIndex(def);
-                // If we order post-query in json, the first column is the json column
-                // that we ship to the client. The ordering columns will be after the json column,
-                // so we should shift the ordering column index by 1 position because selection at
-                // this point doesn't know about the json column. (CASSANDRA-14286)
                 if (index < 0)
                     index = selection.addColumnForOrdering(def);
+                // If we order post-query in json, the first and only column that we ship to the client is the json column.
+                // In that case, we should keep ordering columns around to perform the ordering, then these columns will
+                // be placed after the json column. As a consequence of where the colums are placed, we should give the
+                // ordering index a value based on their position in the json encoding and discard the original index.
+                // (CASSANDRA-14286)
                 orderingIndexes.put(def.name, isJson ? jsonIndex++ : index);
             }
             return orderingIndexes;
