@@ -57,6 +57,7 @@ public abstract class Selection
     private final ResultSet.ResultMetadata metadata;
     private final boolean collectTimestamps;
     private final boolean collectTTLs;
+    private List<Integer> orderingColumnIndex;
 
     protected Selection(CFMetaData cfm,
                         List<ColumnDefinition> columns,
@@ -70,6 +71,7 @@ public abstract class Selection
         this.metadata = new ResultSet.ResultMetadata(columnMapping.getColumnSpecifications());
         this.collectTimestamps = collectTimestamps;
         this.collectTTLs = collectTTLs;
+        this.orderingColumnIndex = null;
     }
 
     // Overriden by SimpleSelection when appropriate.
@@ -139,8 +141,9 @@ public abstract class Selection
         ColumnSpecification firstColumn = metadata.names.get(0);
         ColumnSpecification jsonSpec = new ColumnSpecification(firstColumn.ksName, firstColumn.cfName, Json.JSON_COLUMN_ID, UTF8Type.instance);
         ResultSet.ResultMetadata resultMetadata = new ResultSet.ResultMetadata(Lists.newArrayList(jsonSpec));
-        for (ColumnSpecification c : metadata.names)
-            resultMetadata.addNonSerializedColumn(c);
+        if (orderingColumnIndex != null)
+            for (Integer c : orderingColumnIndex)
+                resultMetadata.addNonSerializedColumn(metadata.names.get(c));
         return resultMetadata;
     }
 
@@ -238,6 +241,11 @@ public abstract class Selection
     public List<ColumnDefinition> getColumns()
     {
         return columns;
+    }
+
+    public void setOrderingIndex(Collection<Integer> orderingIndex)
+    {
+        this.orderingColumnIndex = new ArrayList<>(orderingIndex);
     }
 
     /**
@@ -364,7 +372,10 @@ public abstract class Selection
             {
                 // Keep all columns around for possible post-query ordering. (CASSANDRA-14286)
                 List<ByteBuffer> jsonRow = rowToJson(outputRow, protocolVersion);
-                jsonRow.addAll(outputRow);
+
+                if (orderingColumnIndex != null)
+                    for (Integer position: orderingColumnIndex)
+                        jsonRow.add(outputRow.get(position));
                 outputRow = jsonRow;
             }
             return outputRow;

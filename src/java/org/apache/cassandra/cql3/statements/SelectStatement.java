@@ -844,6 +844,7 @@ public class SelectStatement implements CQLStatement
                 verifyOrderingIsAllowed(restrictions);
                 orderingComparator = getOrderingComparator(cfm, selection, restrictions, parameters.isJson);
                 isReversed = isReversed(cfm);
+                selection.setOrderingIndex(getOrderingIndex(cfm, selection, false).values());
             }
 
             if (isReversed)
@@ -972,6 +973,7 @@ public class SelectStatement implements CQLStatement
             // even if we don't
             // ultimately ship them to the client (CASSANDRA-4911).
             Map<ColumnIdentifier, Integer> orderingIndexes = new HashMap<>();
+            int jsonIndex = 1;
             for (ColumnIdentifier.Raw raw : parameters.orderings.keySet())
             {
                 ColumnIdentifier column = raw.prepare(cfm);
@@ -983,11 +985,9 @@ public class SelectStatement implements CQLStatement
                 // that we ship to the client. The ordering columns will be after the json column,
                 // so we should shift the ordering column index by 1 position because selection at
                 // this point doesn't know about the json column. (CASSANDRA-14286)
-                if (isJson && index >= 0)
-                    index += 1;
                 if (index < 0)
                     index = selection.addColumnForOrdering(def);
-                orderingIndexes.put(def.name, index);
+                orderingIndexes.put(def.name, isJson ? jsonIndex++ : index);
             }
             return orderingIndexes;
         }
