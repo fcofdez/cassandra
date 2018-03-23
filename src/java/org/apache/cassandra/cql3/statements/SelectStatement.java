@@ -844,7 +844,6 @@ public class SelectStatement implements CQLStatement
                 verifyOrderingIsAllowed(restrictions);
                 orderingComparator = getOrderingComparator(cfm, selection, restrictions, parameters.isJson);
                 isReversed = isReversed(cfm);
-                selection.setOrderingColumnsIndex(getOrderingIndex(cfm, selection, false).values());
             }
 
             if (isReversed)
@@ -950,7 +949,7 @@ public class SelectStatement implements CQLStatement
             if (!restrictions.keyIsInRelation())
                 return null;
 
-            Map<ColumnIdentifier, Integer> orderingIndexes = getOrderingIndex(cfm, selection, isJson);
+            Map<ColumnDefinition, Integer> orderingIndexes = getOrderingIndex(cfm, selection, isJson);
 
             List<Integer> idToSort = new ArrayList<Integer>();
             List<Comparator<ByteBuffer>> sorters = new ArrayList<Comparator<ByteBuffer>>();
@@ -959,38 +958,28 @@ public class SelectStatement implements CQLStatement
             {
                 ColumnIdentifier identifier = raw.prepare(cfm);
                 ColumnDefinition orderingColumn = cfm.getColumnDefinition(identifier);
-                idToSort.add(orderingIndexes.get(orderingColumn.name));
+                idToSort.add(orderingIndexes.get(orderingColumn));
                 sorters.add(orderingColumn.type);
             }
             return idToSort.size() == 1 ? new SingleColumnComparator(idToSort.get(0), sorters.get(0))
                     : new CompositeComparator(sorters, idToSort);
         }
 
-        private Map<ColumnIdentifier, Integer> getOrderingIndex(CFMetaData cfm, Selection selection, boolean isJson)
+        private Map<ColumnDefinition, Integer> getOrderingIndex(CFMetaData cfm, Selection selection, boolean isJson)
                 throws InvalidRequestException
         {
             // If we order post-query (see orderResults), the sorted column needs to be in the ResultSet for sorting,
             // even if we don't
             // ultimately ship them to the client (CASSANDRA-4911).
-            Map<ColumnIdentifier, Integer> orderingIndexes = new HashMap<>();
-            int jsonIndex = 1;
             for (ColumnIdentifier.Raw raw : parameters.orderings.keySet())
             {
                 ColumnIdentifier column = raw.prepare(cfm);
                 final ColumnDefinition def = cfm.getColumnDefinition(column);
                 if (def == null)
                     handleUnrecognizedOrderingColumn(column);
-                int index = selection.getResultSetIndex(def);
-                if (index < 0)
-                    index = selection.addColumnForOrdering(def);
-                // If we order post-query in json, the first and only column that we ship to the client is the json column.
-                // In that case, we should keep ordering columns around to perform the ordering, then these columns will
-                // be placed after the json column. As a consequence of where the colums are placed, we should give the
-                // ordering index a value based on their position in the json encoding and discard the original index.
-                // (CASSANDRA-14286)
-                orderingIndexes.put(def.name, isJson ? jsonIndex++ : index);
+                selection.addColumnForOrdering(def);
             }
-            return orderingIndexes;
+            return selection.getOrderingIndex(isJson);
         }
 
         private boolean isReversed(CFMetaData cfm) throws InvalidRequestException
