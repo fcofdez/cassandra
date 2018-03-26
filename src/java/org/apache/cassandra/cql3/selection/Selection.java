@@ -48,6 +48,7 @@ public abstract class Selection
     protected final ResultSet.ResultMetadata metadata;
     protected final ColumnFilterFactory columnFilterFactory;
     protected final boolean isJson;
+    protected Map<ColumnMetadata, Integer> orderingIndex;
 
     protected Selection(TableMetadata table,
                         List<ColumnMetadata> selectedColumns,
@@ -90,6 +91,24 @@ public abstract class Selection
         return !Iterables.isEmpty(Iterables.filter(columns, STATIC_COLUMN_FILTER));
     }
 
+    public Map<ColumnMetadata, Integer> getOrderingIndex(boolean isJson)
+    {
+        if (!isJson)
+            return orderingIndex;
+
+        // If we order post-query in json, the first and only column that we ship to the client is the json column.
+        // In that case, we should keep ordering columns around to perform the ordering, then these columns will
+        // be placed after the json column. As a consequence of where the colums are placed, we should give the
+        // ordering index a value based on their position in the json encoding and discard the original index.
+        // (CASSANDRA-14286)
+        int columnIndex = 1;
+        Map<ColumnMetadata, Integer> jsonOrderingIndex = new LinkedHashMap<>(orderingIndex.size());
+        for (ColumnMetadata column : orderingIndex.keySet())
+            jsonOrderingIndex.put(column, columnIndex++);
+
+        return jsonOrderingIndex;
+    }
+
     public ResultSet.ResultMetadata getResultMetadata()
     {
         if (!isJson)
@@ -97,7 +116,10 @@ public abstract class Selection
 
         ColumnSpecification firstColumn = metadata.names.get(0);
         ColumnSpecification jsonSpec = new ColumnSpecification(firstColumn.ksName, firstColumn.cfName, Json.JSON_COLUMN_ID, UTF8Type.instance);
-        return new ResultSet.ResultMetadata(Arrays.asList(jsonSpec));
+        ResultSet.ResultMetadata resultMetadata = new ResultSet.ResultMetadata(Lists.newArrayList(jsonSpec));
+        if (orderingIndex != null)
+            resultMetadata.addNonSerializedColumns(orderingIndex.keySet());
+        return resultMetadata;
     }
 
     public static Selection wildcard(TableMetadata table, boolean isJson)
@@ -118,6 +140,26 @@ public abstract class Selection
                              Collections.emptySet(),
                              true,
                              isJson);
+    }
+
+    public void addColumnForOrdering(ColumnMetadata c)
+    {
+        if (orderingIndex == null)
+            orderingIndex = new LinkedHashMap<>();
+
+        int index = getResultSetIndex(c);
+
+        if (index < 0)
+            index = addOrderingColumn(c);
+
+        orderingIndex.put(c, index);
+    }
+
+    protected int addOrderingColumn(ColumnMetadata c)
+    {
+        columns.add(c);
+        metadata.addNonSerializedColumn(c);
+        return columns.size() - 1;
     }
 
     public static Selection forColumns(TableMetadata table, List<ColumnMetadata> columns)
@@ -262,7 +304,7 @@ public abstract class Selection
     private static List<ByteBuffer> rowToJson(List<ByteBuffer> row, ProtocolVersion protocolVersion, ResultSet.ResultMetadata metadata)
     {
         StringBuilder sb = new StringBuilder("{");
-        for (int i = 0; i < metadata.names.size(); i++)
+        for (int i = 0; i < metadata.getColumnCount(); i++)
         {
             if (i > 0)
                 sb.append(", ");
@@ -282,7 +324,9 @@ public abstract class Selection
                 sb.append(spec.type.toJSONString(buffer, protocolVersion));
         }
         sb.append("}");
-        return Collections.singletonList(UTF8Type.instance.getSerializer().serialize(sb.toString()));
+        List<ByteBuffer> jsonRow = new ArrayList<>();
+        jsonRow.add(UTF8Type.instance.getSerializer().serialize(sb.toString()));
+        return jsonRow;
     }
 
     public static interface Selectors
@@ -408,7 +452,19 @@ public abstract class Selection
 
                 public List<ByteBuffer> getOutputRow()
                 {
-                    return isJson ? rowToJson(current, options.getProtocolVersion(), metadata) : current;
+                    if (isJson)
+                    {
+                        List<ByteBuffer> jsonRow = rowToJson(current, options.getProtocolVersion(), metadata);
+
+                        // Keep ordering columns around for possible post-query ordering. (CASSANDRA-14286)
+                        if (orderingIndex != null)
+                        {
+                            for (Integer orderingColumnIndex : orderingIndex.values())
+                                jsonRow.add(current.get(orderingColumnIndex));
+                        }
+                        current = jsonRow;
+                    }
+                    return current;
                 }
 
                 public void addInputRow(ResultSetBuilder rs) throws InvalidRequestException

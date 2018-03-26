@@ -977,7 +977,7 @@ public class SelectStatement implements CQLStatement
             {
                 assert !forView;
                 verifyOrderingIsAllowed(restrictions);
-                orderingComparator = getOrderingComparator(table, selection, restrictions, orderingColumns);
+                orderingComparator = getOrderingComparator(table, selection, restrictions, orderingColumns, parameters.isJson);
                 isReversed = isReversed(table, orderingColumns, restrictions);
                 if (isReversed)
                     orderingComparator = Collections.reverseOrder(orderingComparator);
@@ -1182,37 +1182,36 @@ public class SelectStatement implements CQLStatement
         private Comparator<List<ByteBuffer>> getOrderingComparator(TableMetadata metadata,
                                                                    Selection selection,
                                                                    StatementRestrictions restrictions,
-                                                                   Map<ColumnMetadata, Boolean> orderingColumns)
+                                                                   Map<ColumnMetadata, Boolean> orderingColumns,
+                                                                   boolean isJson)
                                                                    throws InvalidRequestException
         {
             if (!restrictions.keyIsInRelation())
                 return null;
 
-            Map<ColumnIdentifier, Integer> orderingIndexes = getOrderingIndex(metadata, selection, orderingColumns);
+            Map<ColumnMetadata, Integer> orderingIndexes = getOrderingIndex(selection, orderingColumns, isJson);
 
             List<Integer> idToSort = new ArrayList<Integer>(orderingColumns.size());
             List<Comparator<ByteBuffer>> sorters = new ArrayList<Comparator<ByteBuffer>>(orderingColumns.size());
 
             for (ColumnMetadata orderingColumn : orderingColumns.keySet())
             {
-                idToSort.add(orderingIndexes.get(orderingColumn.name));
+                idToSort.add(orderingIndexes.get(orderingColumn));
                 sorters.add(orderingColumn.type);
             }
             return idToSort.size() == 1 ? new SingleColumnComparator(idToSort.get(0), sorters.get(0))
                     : new CompositeComparator(sorters, idToSort);
         }
 
-        private Map<ColumnIdentifier, Integer> getOrderingIndex(TableMetadata table,
-                                                                Selection selection,
-                                                                Map<ColumnMetadata, Boolean> orderingColumns)
+        private Map<ColumnMetadata, Integer> getOrderingIndex(Selection selection,
+                                                              Map<ColumnMetadata, Boolean> orderingColumns,
+                                                              boolean isJson)
         {
-            Map<ColumnIdentifier, Integer> orderingIndexes = Maps.newHashMapWithExpectedSize(orderingColumns.size());
             for (ColumnMetadata def : orderingColumns.keySet())
             {
-                int index = selection.getResultSetIndex(def);
-                orderingIndexes.put(def.name, index);
+                selection.addColumnForOrdering(def);
             }
-            return orderingIndexes;
+            return selection.getOrderingIndex(isJson);
         }
 
         private boolean isReversed(TableMetadata table, Map<ColumnMetadata, Boolean> orderingColumns, StatementRestrictions restrictions) throws InvalidRequestException

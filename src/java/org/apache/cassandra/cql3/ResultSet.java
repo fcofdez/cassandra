@@ -34,6 +34,7 @@ import io.netty.buffer.ByteBuf;
 import org.apache.cassandra.cql3.statements.ParsedStatement;
 import org.apache.cassandra.cql3.statements.SelectStatement;
 import org.apache.cassandra.db.marshal.AbstractType;
+import org.apache.cassandra.schema.ColumnMetadata;
 import org.apache.cassandra.service.pager.PagingState;
 import org.apache.cassandra.transport.CBCodec;
 import org.apache.cassandra.transport.CBUtil;
@@ -279,6 +280,14 @@ public class ResultSet
             // See comment above. Because columnCount doesn't account the newly added name, it
             // won't be serialized.
             names.addAll(columns);
+            return this;
+        }
+
+        public ResultMetadata addNonSerializedColumn(ColumnMetadata column)
+        {
+            // See comment above. Because columnCount doesn't account the newly added name, it
+            // won't be serialized.
+            names.add(column);
             return this;
         }
 
